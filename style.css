@@ -239,7 +239,8 @@ mark{background:#FFE8A3;color:inherit;border-radius:2px;padding:0 1px}
 .sheet__cat{margin:0 0 5px;font-size:12.5px;font-weight:600;letter-spacing:.02em}
 .sheet__name{margin:0;font-family:var(--display);font-weight:800;font-size:23px;line-height:1.25;padding-right:40px}
 .sheet__addr{margin:7px 0 0;font-size:14px;color:var(--muted);line-height:1.5}
-.paylist{margin:16px 0 0;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.paybox{margin-top:16px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.paylist{margin:0;padding:0}
 .paylist__row{
   display:flex;justify-content:space-between;align-items:center;gap:12px;
   padding:11px 14px;background:var(--bg3,#FAFBFC);
@@ -250,6 +251,10 @@ mark{background:#FFE8A3;color:inherit;border-radius:2px;padding:0 1px}
 .paylist__row.is-yes dt{color:var(--ink)}
 .paylist__row.is-yes dd{color:var(--signal)}
 .paylist__row.is-yes dd::before{content:'✓ ';font-weight:800}
+.paylist__note{
+  margin:0;padding:10px 14px;border-top:1px solid var(--line);
+  background:#FFF8F2;color:#8A5A33;font-size:12px;line-height:1.55;font-weight:500;
+}
 
 .sheet__acts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
 .sheet__acts a{

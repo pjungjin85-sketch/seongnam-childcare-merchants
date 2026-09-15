@@ -62,7 +62,7 @@ const el = {
   originHint: $('originHint'), mapreset: $('mapreset'),
   sheet: $('sheet'), sheetClose: $('sheetClose'), sheetCat: $('sheetCat'),
   sheetName: $('sheetName'), sheetAddr: $('sheetAddr'),
-  sheetPay: $('sheetPay'), sheetActs: $('sheetActs'),
+  sheetPay: $('sheetPay'), sheetNote: $('sheetNote'), sheetActs: $('sheetActs'),
   footMeta: $('footMeta'),
 };
 
@@ -257,15 +257,20 @@ function openSheet(i) {
   el.sheetName.textContent = D.n[i];
   el.sheetAddr.textContent = fullAddr(i) ? `성남시 ${fullAddr(i)}` : '주소 정보 없음';
 
+  // '사용 가능'이라고 단정하지 않는다. 신한카드도 "가맹점으로 검색되더라도 단말기
+  // 승인 방식이나 사업자 변경 때문에 포인트 사용이 불가능할 수 있다"고 안내한다.
   const p = D.pay[i];
   const gift = p & PAY_GIFT
-    ? (D.gt[i] ? `${D.giftTypes[D.gt[i]]} 가능` : '사용 가능')
+    ? (D.gt[i] ? `${D.giftTypes[D.gt[i]]}` : '가맹점 목록에 있음')
     : '';
   el.sheetPay.innerHTML =
     `<div class="paylist__row${p & PAY_CHILD ? ' is-yes' : ''}">` +
-      `<dt>아동수당 포인트</dt><dd>${p & PAY_CHILD ? '사용 가능' : '자료에 없음'}</dd></div>` +
+      `<dt>아동수당 포인트</dt><dd>${p & PAY_CHILD ? '가맹점 목록에 있음' : '목록에 없음'}</dd></div>` +
     `<div class="paylist__row${p & PAY_GIFT ? ' is-yes' : ''}">` +
-      `<dt>성남사랑상품권</dt><dd>${p & PAY_GIFT ? esc(gift) : '자료에 없음'}</dd></div>`;
+      `<dt>성남사랑상품권</dt><dd>${p & PAY_GIFT ? esc(gift) : '목록에 없음'}</dd></div>`;
+  el.sheetNote.textContent =
+    '목록에 있어도 가게 단말기 방식이나 사업자 변경 때문에 결제가 안 될 수 있습니다. 계산 전에 물어보세요.';
+  el.sheetNote.hidden = !p;
 
   const acts = [];
   if (D.y[i] !== null) {
