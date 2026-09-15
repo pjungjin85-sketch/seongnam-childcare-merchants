@@ -227,6 +227,47 @@ def norm_addr(s):
     return re.sub(r"\s+", "", s)
 
 
+def road_key(s):
+    """주소를 (도로명, 건물번호)로 쪼갠다. 도로명을 못 찾으면 None(판정 불가).
+
+    '내정로174번길 42' -> ('내정로174번길', '42')
+    '내정로174번길'    -> ('내정로174번길', '')     번지가 빠진 표기
+    '정자동'           -> None
+    """
+    s = re.sub(r"^\[\d{5}\]\s*", "", (s or "").strip())
+    s = re.sub(r"^경기(도)?\s*", "", s)
+    s = re.sub(r"^성남시\s*", "", s)
+    s = re.sub(r"^(수정구|중원구|분당구)\s*", "", s)
+    s = s.split(",")[0]
+    s = re.sub(r"\s*\((?!\s*\d).*$", "", s)
+    s = re.sub(r"\s*(지하|지상)\s*", " ", s)
+    m = (re.match(r"(.+?(?:로|길)\s*\d+번길)\s*(\d+(?:-\d+)?)?", s)
+         or re.match(r"(.+?(?:로|길))\s*(\d+(?:-\d+)?)?", s))
+    if not m:
+        return None
+    return (re.sub(r"\s+", "", m.group(1)), m.group(2) or "")
+
+
+def addr_conflict(a, b):
+    """두 주소가 서로 모순되는가. 한쪽이 동 단위면 모순으로 보지 않는다."""
+    ka, kb = road_key(a), road_key(b)
+    if ka is None or kb is None:
+        return False
+    if ka[0] != kb[0]:
+        return True
+    return bool(ka[1] and kb[1] and ka[1] != kb[1])
+
+
+def addr_rank(a, b):
+    """후보가 여럿일 때 주소가 더 잘 맞는 쪽을 고르기 위한 점수 (작을수록 좋음)"""
+    ka, kb = road_key(a), road_key(b)
+    if ka and kb and ka == kb:
+        return 0
+    if ka and kb and ka[0] == kb[0]:
+        return 1
+    return 2
+
+
 def load_gift():
     """성남사랑상품권 엑셀 -> 레코드 목록. 파일이 없으면 빈 목록."""
     if not os.path.exists(GIFT):
@@ -317,32 +358,54 @@ def main():
     gift = load_gift()
     stats = collections.Counter()
     if gift:
-        by_na, by_n, by_p = (collections.defaultdict(list) for _ in range(3))
+        by_n, by_p, by_addr = (collections.defaultdict(list) for _ in range(3))
         addr_xy = {}
         for v in recs:
             gu = GU[v["g"]] if v["g"] >= 0 else ""
             na = norm_addr(v["a"])
-            by_na[(norm_name(v["n"]), gu, na)].append(v)
             by_n[(norm_name(v["n"]), gu)].append(v)
             if v["p"]:
                 by_p[v["p"]].append(v)
+            rk = road_key(v["a"])
+            if rk and rk[1]:          # 번지까지 있는 주소만 건물 단위 열쇠로 쓴다
+                by_addr[(gu, rk)].append(v)
             if v["y"] is not None and len(na) > 3:
                 addr_xy.setdefault((gu, na), (v["y"], v["x"]))
 
+        # 상호가 같아도 주소가 서로 모순되면 붙이지 않는다. 그렇게 하지 않으면
+        # 같은 이름의 다른 가게를 한 곳으로 합쳐 '둘 다 된다'고 잘못 알려주게 된다.
         for g in gift:
             na = norm_addr(g["a"])
             hit = None
-            kna = (norm_name(g["n"]), g["gu"], na)
-            kn = (norm_name(g["n"]), g["gu"])
-            if kna in by_na:
-                hit = by_na[kna][0]
-                stats["이름+구+주소"] += 1
+            cands = [c for c in by_n.get((norm_name(g["n"]), g["gu"]), [])
+                     if not addr_conflict(g["a"], c["a"])]
+            if cands:
+                cands.sort(key=lambda c: addr_rank(g["a"], c["a"]))
+                hit = cands[0]
+                stats["상호+주소" if len(cands) == 1 else "상호+주소(후보 여럿)"] += 1
             elif g["p"] and len(by_p.get(g["p"], [])) == 1:
-                hit = by_p[g["p"]][0]
-                stats["전화번호"] += 1
-            elif len(by_n.get(kn, [])) == 1:
-                hit = by_n[kn][0]
-                stats["이름+구"] += 1
+                c = by_p[g["p"]][0]
+                if not addr_conflict(g["a"], c["a"]):
+                    hit = c
+                    stats["전화번호"] += 1
+                else:
+                    stats["전화는 같으나 주소 모순 → 각각 표시"] += 1
+            elif by_n.get((norm_name(g["n"]), g["gu"])):
+                stats["상호는 같으나 주소 모순 → 각각 표시"] += 1
+            else:
+                # 번지까지 같은 건물에서 한쪽 상호가 다른 쪽에 통째로 들어가면 같은 가게로 본다.
+                # ('바앤복히든살롱' ↔ '바앤복히든살롱 성남위례점', '노티웨이' ↔ '노티웨이(Knotty Way)')
+                rk = road_key(g["a"])
+                if rk and rk[1]:
+                    gn = norm_name(g["n"])
+                    same = [c for c in by_addr.get((g["gu"], rk), [])
+                            if len(gn) >= 2 and len(norm_name(c["n"])) >= 2
+                            and (gn in norm_name(c["n"]) or norm_name(c["n"]) in gn)]
+                    if len(same) == 1:
+                        hit = same[0]
+                        stats["같은 번지+상호 포함"] += 1
+                    elif len(same) > 1:
+                        stats["같은 번지지만 후보 여럿 → 각각 표시"] += 1
 
             if hit:
                 hit["pay"] |= PAY_GIFT
@@ -366,6 +429,15 @@ def main():
                 "pay": PAY_GIFT,
                 "gt": g["gt"],
             })
+
+    # 상호가 차량번호인 가맹점(대부분 상품권 택시)은 지도에 찍지 않는다. 전부 성남시청
+    # 주소로 등록돼 있어 900개 넘는 핀이 시청 한 점에 쌓이는데, 택시의 실제 위치도 아니다.
+    plate = re.compile(r"^(경기|서울|인천)\s?\d{2,3}\s?[가-힣]\s?\d{3,4}$")
+    plate_n = 0
+    for v in recs:
+        if plate.match(v["n"].strip()) and v["y"] is not None:
+            v["y"] = v["x"] = None
+            plate_n += 1
 
     # 상호와 주소가 같은데 결제수단만 갈린 항목을 맞춘다. 아동수당 쪽에 같은 가게가
     # 전화번호만 다르게 두 건 들어 있으면 그중 하나만 대조에 걸려 생기는 일이다.
@@ -444,6 +516,8 @@ def main():
         print("상품권 대조:", ", ".join(f"{k} {v:,}" for k, v in stats.most_common()))
     if merged_flags:
         print(f"같은 가게로 보고 결제수단 맞춘 항목: {merged_flags:,}건")
+    if plate_n:
+        print(f"상호가 차량번호라 지도에서 뺀 항목: {plate_n:,}건")
     print("구별  :", dict(collections.Counter((GU[v['g']] if v['g'] >= 0 else '(주소없음)') for v in recs)))
     print("그룹별:", dict(gcount))
     print(f"\n세부 업종 {len(sub_list)}개")
