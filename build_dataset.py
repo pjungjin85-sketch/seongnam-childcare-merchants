@@ -367,6 +367,25 @@ def main():
                 "gt": g["gt"],
             })
 
+    # 상호와 주소가 같은데 결제수단만 갈린 항목을 맞춘다. 아동수당 쪽에 같은 가게가
+    # 전화번호만 다르게 두 건 들어 있으면 그중 하나만 대조에 걸려 생기는 일이다.
+    same = collections.defaultdict(list)
+    for v in recs:
+        same[(norm_name(v["n"]), v["g"], norm_addr(v["a"]))].append(v)
+    merged_flags = 0
+    for group in same.values():
+        if len(group) < 2:
+            continue
+        pay = 0
+        gt = 0
+        for v in group:
+            pay |= v["pay"]
+            gt = max(gt, v["gt"])
+        for v in group:
+            if v["pay"] != pay:
+                merged_flags += 1
+            v["pay"], v["gt"] = pay, gt
+
     # 한글로 시작하는 상호를 앞에 둔다. 기호로 시작하는 법인명이 목록 첫 화면을
     # 채우면 "(#)..." "((본사직영))..." 만 보여서 무슨 목록인지 알아보기 어렵다.
     recs.sort(key=lambda v: (0 if "가" <= v["n"][0] <= "힣" else 1, v["n"]))
@@ -423,6 +442,8 @@ def main():
     print(f"결제수단: 아동수당만 {paycount[1]:,} · 상품권만 {paycount[2]:,} · 둘 다 {paycount[3]:,}")
     if stats:
         print("상품권 대조:", ", ".join(f"{k} {v:,}" for k, v in stats.most_common()))
+    if merged_flags:
+        print(f"같은 가게로 보고 결제수단 맞춘 항목: {merged_flags:,}건")
     print("구별  :", dict(collections.Counter((GU[v['g']] if v['g'] >= 0 else '(주소없음)') for v in recs)))
     print("그룹별:", dict(gcount))
     print(f"\n세부 업종 {len(sub_list)}개")
