@@ -2,6 +2,11 @@
    데이터: merchants.json — 필드별 배열(컬럼) 구조. 한 건은 인덱스 하나로 다룬다. */
 'use strict';
 
+// 카카오 JavaScript 키. 브라우저에 노출되는 값이라 숨길 수 없고, 등록된 도메인
+// (pjungjin85-sketch.github.io)에서만 동작하므로 다른 사이트에 옮겨 써도 소용없다.
+// 키를 바꾸려면 지도 탭에서 새 키를 넣으면 되고, 그 값이 이 기본값을 덮는다.
+const KAKAO_KEY = 'a83ccf5d0f76a309473878b4530aa580';
+
 const PAGE = 60;            // 목록을 한 번에 그리는 개수
 const MARKER_CAP = 2500;    // 지도에 한 번에 올리는 마커 상한
 const SEONGNAM = { lat: 37.4200, lng: 127.1265 };
@@ -427,7 +432,9 @@ async function init() {
   search();
   measureControls();
 
-  const key = new URLSearchParams(location.search).get('key') || localStorage.getItem('kakaoKey');
+  const key = new URLSearchParams(location.search).get('key')
+    || localStorage.getItem('kakaoKey')
+    || KAKAO_KEY;
   if (key) tryBootMap(key, false);
 }
 
