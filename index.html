@@ -41,13 +41,10 @@
     </p>
 
     <div class="filters">
-      <div class="chips" id="guChips" role="group" aria-label="자치구 선택">
-        <button class="chip is-on" data-gu="">전체</button>
-        <button class="chip" data-gu="수정구">수정구</button>
-        <button class="chip" data-gu="중원구">중원구</button>
-        <button class="chip" data-gu="분당구">분당구</button>
-      </div>
+      <div class="chips" id="placeChips" role="group" aria-label="지역 선택"></div>
+      <div class="chips chips--sub" id="radiusChips" role="group" aria-label="역에서의 거리" hidden></div>
       <div class="chips" id="catChips" role="group" aria-label="업종 선택"></div>
+      <div class="chips chips--sub" id="subChips" role="group" aria-label="세부 업종 선택" hidden></div>
     </div>
 
     <nav class="seg" role="tablist" aria-label="보기 방식">

@@ -11,6 +11,31 @@ const PAGE = 60;            // 목록을 한 번에 그리는 개수
 const MARKER_CAP = 2500;    // 지도에 한 번에 올리는 마커 상한
 const SEONGNAM = { lat: 37.4200, lng: 127.1265 };
 
+// 성남시 지하철역. 좌표는 OpenStreetMap 에서 받아 노선별 노드를 평균냈다.
+const STATIONS = [
+  { n: '복정', y: 37.47075, x: 127.12672, l: '8호선·수인분당선' },
+  { n: '남위례', y: 37.46277, x: 127.13922, l: '8호선' },
+  { n: '산성', y: 37.45687, x: 127.14993, l: '8호선' },
+  { n: '남한산성입구', y: 37.45155, x: 127.15981, l: '8호선' },
+  { n: '가천대', y: 37.44870, x: 127.12672, l: '수인분당선' },
+  { n: '단대오거리', y: 37.44508, x: 127.15678, l: '8호선' },
+  { n: '신흥', y: 37.44100, x: 127.14766, l: '8호선' },
+  { n: '태평', y: 37.43971, x: 127.12774, l: '수인분당선' },
+  { n: '수진', y: 37.43744, x: 127.14069, l: '8호선' },
+  { n: '모란', y: 37.43298, x: 127.12911, l: '8호선·수인분당선' },
+  { n: '야탑', y: 37.41130, x: 127.12871, l: '수인분당선' },
+  { n: '삼동', y: 37.40866, x: 127.20339, l: '경강선' },
+  { n: '이매', y: 37.39497, x: 127.12832, l: '수인분당선·경강선' },
+  { n: '판교', y: 37.39473, x: 127.11136, l: '신분당선·경강선' },
+  { n: '성남', y: 37.39419, x: 127.12000, l: 'GTX-A' },
+  { n: '서현', y: 37.38491, x: 127.12333, l: '수인분당선' },
+  { n: '수내', y: 37.37841, x: 127.11425, l: '수인분당선' },
+  { n: '정자', y: 37.36644, x: 127.10827, l: '수인분당선·신분당선' },
+  { n: '미금', y: 37.34981, x: 127.10902, l: '수인분당선·신분당선' },
+  { n: '오리', y: 37.33994, x: 127.10891, l: '수인분당선' },
+];
+const RADII = [300, 500, 1000];
+
 const GROUP_COLOR = {
   food: '#FF5A1F', mart: '#00A05A', med: '#E8334A', edu: '#1B45FF',
   beauty: '#9B3BE8', fashion: '#E0348C', leisure: '#009BB0', life: '#6A7280',
@@ -19,7 +44,8 @@ const GROUP_COLOR = {
 const $ = (id) => document.getElementById(id);
 const el = {
   q: $('q'), clear: $('clear'), hit: $('hit'), scope: $('scope'),
-  guChips: $('guChips'), catChips: $('catChips'),
+  placeChips: $('placeChips'), radiusChips: $('radiusChips'),
+  catChips: $('catChips'), subChips: $('subChips'),
   tabList: $('tabList'), tabMap: $('tabMap'), paneList: $('paneList'), paneMap: $('paneMap'),
   list: $('list'), more: $('more'), empty: $('empty'),
   map: $('map'), mapkey: $('mapkey'), keyInput: $('keyInput'), keySave: $('keySave'),
@@ -33,8 +59,17 @@ let D = null;          // 원본 컬럼 데이터
 let NORM = null;       // 검색용 정규화 이름
 let CHO = null;        // 초성 인덱스 (처음 초성 검색할 때 만든다)
 let results = [];      // 결과 인덱스 배열
+let DIST = null;       // 역 모드일 때 인덱스 -> 역까지 거리(m)
 let shown = 0;
-const filter = { q: '', gu: -1, group: '' };
+const filter = {
+  q: '',
+  place: 'gu',    // 'gu' = 자치구로 고르기, 'station' = 역 주변으로 고르기
+  gu: -1,
+  station: -1,
+  radius: 500,
+  group: '',
+  sub: -1,
+};
 
 /* ---------------- 데이터 접근 ---------------- */
 
@@ -77,23 +112,43 @@ function buildChosung() {
   }
 }
 
+/** 두 좌표 사이 거리(m). 성남 정도 범위면 평면 근사로 충분하다. */
+function metersBetween(lat1, lon1, lat2, lon2) {
+  const dy = (lat1 - lat2) * 111320;
+  const dx = (lon1 - lon2) * 88800;   // 위도 37.4°의 경도 1도 길이
+  return Math.sqrt(dy * dy + dx * dx);
+}
+
 function search() {
   const raw = filter.q.trim();
   const q = norm(raw);
   const cho = q && isChosung(q);
   if (cho && !CHO) buildChosung();
 
+  const st = filter.place === 'station' && filter.station >= 0 ? STATIONS[filter.station] : null;
+  const dist = st ? new Map() : null;
+
   const out = [];
   const n = D.n.length;
   for (let i = 0; i < n; i++) {
-    if (filter.gu >= 0 && D.g[i] !== filter.gu) continue;
+    if (!st && filter.gu >= 0 && D.g[i] !== filter.gu) continue;
     if (filter.group && groupOf(i) !== filter.group) continue;
+    if (filter.sub >= 0 && D.catSub[D.c[i]] !== filter.sub) continue;
     if (q) {
       if (cho ? !CHO[i].includes(q) : !NORM[i].includes(q)) continue;
     }
+    if (st) {
+      if (D.y[i] === null) continue;
+      const d = metersBetween(st.y, st.x, D.y[i], D.x[i]);
+      if (d > filter.radius) continue;
+      dist.set(i, d);
+    }
     out.push(i);
   }
+  if (st) out.sort((a, b) => dist.get(a) - dist.get(b));   // 가까운 순
+
   results = out;
+  DIST = dist;
 
   shown = 0;
   el.list.innerHTML = '';
@@ -105,8 +160,14 @@ function search() {
 function updateTally() {
   el.hit.textContent = results.length.toLocaleString('ko-KR');
   const parts = [];
-  if (filter.gu >= 0) parts.push(D.gu[filter.gu]);
-  if (filter.group) parts.push(D.groupLabels[D.groupKeys.indexOf(filter.group)]);
+  if (filter.place === 'station' && filter.station >= 0) {
+    const r = filter.radius >= 1000 ? '1km' : `${filter.radius}m`;
+    parts.push(`${STATIONS[filter.station].n}역 ${r} 이내`);
+  } else if (filter.gu >= 0) {
+    parts.push(D.gu[filter.gu]);
+  }
+  if (filter.sub >= 0) parts.push(D.subs[filter.sub]);
+  else if (filter.group) parts.push(D.groupLabels[D.groupKeys.indexOf(filter.group)]);
   if (filter.q.trim()) parts.push(`"${filter.q.trim()}"`);
   el.scope.textContent = parts.length
     ? `${parts.join(' · ')} — 전체 ${D.n.length.toLocaleString('ko-KR')}곳 중`
@@ -120,6 +181,8 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 const PIN_SVG = '<svg viewBox="0 0 24 24"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg>';
 const TEL_SVG = '<svg viewBox="0 0 24 24"><path d="M5 3h4l2 5-2.5 1.5a12 12 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2Z"/></svg>';
+
+const fmtDist = (m) => (m < 1000 ? `${Math.round(m / 10) * 10}m` : `${(m / 1000).toFixed(1)}km`);
 
 function highlight(name) {
   const raw = filter.q.trim();
@@ -135,11 +198,15 @@ function renderMore() {
     const hasPos = D.y[i] !== null;
     const phone = fmtPhone(D.p[i]);
     const meta = [catOf(i), fullAddr(i)].filter(Boolean).join(' · ');
+    const d = DIST ? DIST.get(i) : null;
+    const walk = d != null
+      ? `<span class="row__dist">${STATIONS[filter.station].n}역 ${fmtDist(d)}</span>`
+      : '';
     return `<li class="row" data-n="${shown + n}">` +
       `<span class="row__bar" style="background:${colorOf(i)}"></span>` +
       `<div class="row__body">` +
         `<p class="row__name">${highlight(D.n[i])}</p>` +
-        `<p class="row__meta">${esc(meta)}</p>` +
+        `<p class="row__meta">${walk}${esc(meta)}</p>` +
       `</div>` +
       `<div class="row__acts">` +
         `<button class="act" data-act="map" ${hasPos ? '' : 'data-off'} aria-label="지도에서 보기">${PIN_SVG}</button>` +
@@ -217,6 +284,31 @@ function clusterStyles() {
   }));
 }
 
+let stationCircle = null, stationLabel = null;
+
+/** 역 모드에서 선택한 역과 반경 원을 지도에 겹쳐 그린다. */
+function drawStation() {
+  if (stationCircle) { stationCircle.setMap(null); stationCircle = null; }
+  if (stationLabel) { stationLabel.setMap(null); stationLabel = null; }
+
+  const st = filter.place === 'station' && filter.station >= 0 ? STATIONS[filter.station] : null;
+  if (!st || !map) return;
+
+  const pos = new kakao.maps.LatLng(st.y, st.x);
+  stationCircle = new kakao.maps.Circle({
+    center: pos, radius: filter.radius,
+    strokeWeight: 2, strokeColor: '#1B45FF', strokeOpacity: 0.7, strokeStyle: 'shortdash',
+    fillColor: '#1B45FF', fillOpacity: 0.07,
+  });
+  stationCircle.setMap(map);
+
+  stationLabel = new kakao.maps.CustomOverlay({
+    position: pos, yAnchor: 0.5, zIndex: 5,
+    content: `<div class="stpin">${esc(st.n)}역</div>`,
+  });
+  stationLabel.setMap(map);
+}
+
 function syncMarkers() {
   if (!map || !clusterer) return;
 
@@ -245,6 +337,7 @@ function syncMarkers() {
   });
 
   clusterer.addMarkers(markers);
+  drawStation();
 
   el.mapreset.hidden = use.length === 0;
   el.mapreset.textContent = withPos.length > MARKER_CAP
@@ -256,6 +349,12 @@ function syncMarkers() {
 
 function fitToResults() {
   if (!map) return;
+
+  // 역 모드면 결과가 없어도 반경 원이 보이도록 원에 맞춘다
+  if (stationCircle) {
+    map.setBounds(stationCircle.getBounds(), 24, 24, 24, 24);
+    return;
+  }
   if (!markers.length) {
     map.setCenter(new kakao.maps.LatLng(SEONGNAM.lat, SEONGNAM.lng));
     map.setLevel(7);
@@ -308,6 +407,38 @@ async function tryBootMap(key, fromUser) {
 
 /* ---------------- UI 조립 ---------------- */
 
+const SUBWAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="13" rx="4"/><path d="M8 19l-2 2M16 19l2 2M5 11h14"/></svg>';
+const BACK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg>';
+
+/** 자치구 모드 <-> 역 주변 모드. 두 줄을 쓰지 않도록 한 줄에서 갈아끼운다. */
+function buildPlaceChips() {
+  if (filter.place === 'gu') {
+    const html = [
+      `<button class="chip chip--mode" data-mode="station">${SUBWAY_ICON} 역 주변</button>`,
+      `<button class="chip${filter.gu < 0 ? ' is-on' : ''}" data-gu="-1">성남 전체</button>`,
+    ];
+    D.gu.forEach((name, i) => {
+      html.push(`<button class="chip${filter.gu === i ? ' is-on' : ''}" data-gu="${i}">${esc(name)}</button>`);
+    });
+    el.placeChips.innerHTML = html.join('');
+    el.radiusChips.hidden = true;
+  } else {
+    const html = [`<button class="chip chip--mode" data-mode="gu">${BACK_ICON} 자치구</button>`];
+    STATIONS.forEach((s, i) => {
+      html.push(
+        `<button class="chip${filter.station === i ? ' is-on' : ''}" data-st="${i}" title="${esc(s.l)}">` +
+        `${esc(s.n)}<span class="chip__sub">역</span></button>`
+      );
+    });
+    el.placeChips.innerHTML = html.join('');
+    el.radiusChips.innerHTML = RADII.map((r) =>
+      `<button class="chip chip--sm${filter.radius === r ? ' is-on' : ''}" data-r="${r}">` +
+      `${r >= 1000 ? '1km' : r + 'm'}</button>`).join('') +
+      `<span class="chips__hint">역에서 걸어서</span>`;
+    el.radiusChips.hidden = false;
+  }
+}
+
 function buildCatChips() {
   const counts = {};
   for (let i = 0; i < D.n.length; i++) {
@@ -315,26 +446,46 @@ function buildCatChips() {
     counts[g] = (counts[g] || 0) + 1;
   }
   const keys = D.groupKeys.filter((k) => counts[k]).sort((a, b) => counts[b] - counts[a]);
-  const html = ['<button class="chip is-on" data-group="">업종 전체</button>'];
+  const html = [`<button class="chip${filter.group ? '' : ' is-on'}" data-group="">업종 전체</button>`];
   keys.forEach((k) => {
     const label = D.groupLabels[D.groupKeys.indexOf(k)];
     html.push(
-      `<button class="chip" data-group="${k}">` +
+      `<button class="chip${filter.group === k ? ' is-on' : ''}" data-group="${k}">` +
       `<span style="color:${GROUP_COLOR[k]}">●</span> ${esc(label)} ` +
       `<span style="opacity:.55">${counts[k].toLocaleString('ko-KR')}</span></button>`
     );
   });
   el.catChips.innerHTML = html.join('');
+  buildSubChips();
 }
 
-function wireChips(container, apply) {
-  container.addEventListener('click', (e) => {
-    const b = e.target.closest('.chip');
-    if (!b) return;
-    container.querySelectorAll('.chip').forEach((c) => c.classList.toggle('is-on', c === b));
-    apply(b);
-    search();
+/** 업종 그룹을 고르면 그 그룹의 세부 업종만 아래 줄에 펼친다. */
+function buildSubChips() {
+  if (!filter.group) {
+    el.subChips.hidden = true;
+    el.subChips.innerHTML = '';
+    return;
+  }
+  const gi = D.groupKeys.indexOf(filter.group);
+  const counts = {};
+  for (let i = 0; i < D.n.length; i++) {
+    const s = D.catSub[D.c[i]];
+    if (D.subGroup[s] === gi) counts[s] = (counts[s] || 0) + 1;
+  }
+  const subs = Object.keys(counts).map(Number).sort((a, b) => counts[b] - counts[a]);
+  if (subs.length < 2) {           // 나눌 게 없으면 줄을 만들지 않는다
+    el.subChips.hidden = true;
+    return;
+  }
+  const html = [`<button class="chip chip--sm${filter.sub < 0 ? ' is-on' : ''}" data-sub="-1">전체</button>`];
+  subs.forEach((s) => {
+    html.push(
+      `<button class="chip chip--sm${filter.sub === s ? ' is-on' : ''}" data-sub="${s}">` +
+      `${esc(D.subs[s])} <span style="opacity:.55">${counts[s].toLocaleString('ko-KR')}</span></button>`
+    );
   });
+  el.subChips.innerHTML = html.join('');
+  el.subChips.hidden = false;
 }
 
 function setPane(which) {
@@ -376,8 +527,48 @@ async function init() {
     el.q.value = ''; filter.q = ''; el.clear.hidden = true; search(); el.q.focus();
   });
   el.more.addEventListener('click', renderMore);
-  wireChips(el.guChips, (b) => { filter.gu = b.dataset.gu === '' ? -1 : Number(b.dataset.gu); });
-  wireChips(el.catChips, (b) => { filter.group = b.dataset.group || ''; });
+
+  el.placeChips.addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    if (b.dataset.mode) {
+      filter.place = b.dataset.mode;
+      filter.gu = -1;
+      filter.station = filter.place === 'station' ? 0 : -1;   // 역 모드는 첫 역부터
+    } else if (b.dataset.gu !== undefined) {
+      filter.gu = Number(b.dataset.gu);
+    } else if (b.dataset.st !== undefined) {
+      filter.station = Number(b.dataset.st);
+    }
+    buildPlaceChips();
+    search();
+  });
+
+  el.radiusChips.addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    filter.radius = Number(b.dataset.r);
+    buildPlaceChips();
+    search();
+  });
+
+  el.catChips.addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    filter.group = b.dataset.group || '';
+    filter.sub = -1;
+    el.catChips.querySelectorAll('.chip').forEach((c) => c.classList.toggle('is-on', c === b));
+    buildSubChips();
+    search();
+  });
+
+  el.subChips.addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    filter.sub = Number(b.dataset.sub);
+    el.subChips.querySelectorAll('.chip').forEach((c) => c.classList.toggle('is-on', c === b));
+    search();
+  });
   el.tabList.addEventListener('click', () => setPane('list'));
   el.tabMap.addEventListener('click', () => setPane('map'));
   el.sheetClose.addEventListener('click', () => { el.sheet.hidden = true; });
@@ -422,12 +613,7 @@ async function init() {
   el.footMeta.textContent =
     `가맹점 ${D.n.length.toLocaleString('ko-KR')}곳 · 자료 기준일 ${D.updated}`;
 
-  // 구 칩에 인덱스 부여 (데이터의 gu 순서를 따른다)
-  el.guChips.querySelectorAll('.chip').forEach((c) => {
-    const name = c.textContent.trim();
-    c.dataset.gu = name === '전체' ? '' : String(D.gu.indexOf(name));
-  });
-
+  buildPlaceChips();
   buildCatChips();
   search();
   measureControls();
