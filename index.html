@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>성남시 아동수당 쓸 수 있는 가게</title>
-<meta name="description" content="성남시 아동수당 포인트 가맹점을 이름으로 바로 검색하고 지도에서 위치를 확인합니다.">
+<title>성남 아동수당·상품권 쓸 수 있는 가게</title>
+<meta name="description" content="가게 이름만 넣으면 아동수당 포인트와 성남사랑상품권 중 무엇을 쓸 수 있는지 알려줍니다.">
 <meta name="theme-color" content="#14161A">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%BE%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -17,7 +17,7 @@
 
 <header class="masthead">
   <div class="masthead__inner">
-    <p class="eyebrow">성남시 아동수당 포인트</p>
+    <p class="eyebrow">성남 아동수당·상품권</p>
     <h1 class="title">쓸 수 있는<br><em>가게 찾기</em></h1>
   </div>
 </header>
@@ -41,6 +41,7 @@
     </p>
 
     <div class="filters">
+      <div class="chips" id="payChips" role="group" aria-label="결제수단 선택"></div>
       <div class="chips" id="placeChips" role="group" aria-label="지역 선택"></div>
       <div class="chips chips--sub" id="radiusChips" role="group" aria-label="역에서의 거리" hidden></div>
       <div class="chips" id="catChips" role="group" aria-label="업종 선택"></div>
@@ -61,7 +62,7 @@
       <button class="more" id="more" type="button" hidden>더 보기</button>
       <p class="empty" id="empty" hidden>
         <strong>찾는 가게가 없습니다.</strong>
-        가게 이름 일부만 넣거나, 구·업종 필터를 풀어 보세요.
+        가게 이름 일부만 넣거나, 결제수단·지역·업종 필터를 풀어 보세요.
       </p>
     </div>
   </section>
@@ -74,9 +75,10 @@
         <h2>지도를 켜려면 카카오 앱키가 필요합니다</h2>
         <ol class="mapkey__steps">
           <li><a href="https://developers.kakao.com/console/app" target="_blank" rel="noopener">카카오 개발자센터</a>에서 앱을 만듭니다.</li>
-          <li><b>플랫폼 &gt; Web</b>에 이 페이지 주소를 등록합니다.<br>
+          <li><b>앱 &gt; 플랫폼 키 &gt; JavaScript SDK 도메인</b>에 이 주소를 등록합니다.<br>
               <code id="originHint">—</code></li>
-          <li><b>앱 키 &gt; JavaScript 키</b>를 복사해 아래에 붙여넣습니다.</li>
+          <li><b>제품 설정 &gt; 카카오맵</b>의 활성화 설정을 <b>ON</b>으로 바꿉니다.</li>
+          <li>같은 화면의 <b>JavaScript 키</b>를 복사해 아래에 붙여넣습니다.</li>
         </ol>
         <div class="mapkey__form">
           <input id="keyInput" type="text" placeholder="JavaScript 키 붙여넣기" autocomplete="off" spellcheck="false">
@@ -97,11 +99,13 @@
   <p class="sheet__cat" id="sheetCat"></p>
   <h2 class="sheet__name" id="sheetName"></h2>
   <p class="sheet__addr" id="sheetAddr"></p>
+  <dl class="paylist" id="sheetPay"></dl>
   <div class="sheet__acts" id="sheetActs"></div>
 </div>
 
 <footer class="foot">
-  <p>자료 출처 — 신한카드 <b>성남시 아동수당 포인트 가맹점 찾기</b>.
+  <p>자료 출처 — 아동수당은 신한카드 <b>성남시 아동수당 포인트 가맹점 찾기</b>,
+     상품권은 성남시 <b>성남사랑상품권 가맹점 통합검색</b>.
      가맹점은 수시로 바뀝니다. 결제 전 가게에 한 번 확인하세요.</p>
   <p class="foot__meta" id="footMeta"></p>
 </footer>

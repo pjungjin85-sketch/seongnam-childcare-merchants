@@ -18,7 +18,25 @@ from pyproj import Transformer
 SRC_CRS = "EPSG:5174"
 BASE = os.path.dirname(os.path.abspath(__file__))
 RAW = os.path.join(BASE, "data", "raw_merchants.json")
+GIFT = os.path.join(BASE, "data", "gift_merchants.xlsx")
 OUT = os.path.join(BASE, "merchants.json")
+
+PAY_CHILD = 1     # 아동수당 포인트
+PAY_GIFT = 2      # 성남사랑상품권
+GIFT_TYPES = ["", "지류", "모바일", "지류·모바일"]
+
+# 성남상품권 자료의 '품목'은 7종뿐이라 아동수당 자료의 업종만큼 세분되지 않는다.
+# 상품권에만 있는 가맹점은 이 표로 그룹만 정하고 세부는 '기타'로 둔다.
+GIFT_SECTOR_GROUP = {
+    "음식점업": "food",
+    "소매업": "mart",
+    "보건업": "med",
+    "교육서비스업": "edu",
+    "스포츠및여가관련서비스업": "leisure",
+    "서비스업": "life",
+    "제조업및기타": "life",
+    "기타": "life",
+}
 
 GU = ["수정구", "중원구", "분당구"]
 
@@ -133,12 +151,14 @@ OTHER_SUB = "기타"
 
 
 def build_cat_index(cats):
-    """업종명 -> (그룹키, 세부명). SUBS 우선, 없으면 키워드 추정."""
+    """업종명 -> (그룹키, 세부명). SUBS 우선, 상품권 품목, 그 다음 키워드 추정."""
     explicit = {}
     for g, subs in SUBS.items():
         for sub, names in subs:
             for nm in names:
                 explicit[nm] = (g, sub)
+    for sector, g in GIFT_SECTOR_GROUP.items():
+        explicit.setdefault(sector, (g, OTHER_SUB))
 
     result = {}
     for c in cats:
@@ -174,6 +194,65 @@ def phone_digits(p):
     if "000000" in p or "111111" in p:
         return ""
     return p
+
+
+def norm_name(s):
+    """매칭용 상호 정규화. 법인 표기와 기호를 걷어낸다."""
+    s = re.sub(r"\(주\)|\(유\)|㈜|주식회사|유한회사", "", (s or "").strip())
+    return re.sub(r"[\s.,\-_'\"()\[\]&·]", "", s).lower()
+
+
+def norm_addr(s):
+    """매칭용 주소 정규화. '경기도 성남시 분당구 황새울로 342번길 11, 2층' -> '황새울로342번길11'
+
+    두 자료의 주소 표기가 제각각이라(우편번호 머리말, '지하', 건물명, 지번) 도로명과
+    건물번호만 남긴다. 같은 건물이면 같은 값이 나오는 것이 목표다.
+    """
+    s = re.sub(r"^\[\d{5}\]\s*", "", (s or "").strip())
+    s = re.sub(r"^경기(도)?\s*", "", s)
+    s = re.sub(r"^성남시\s*", "", s)
+    s = re.sub(r"^(수정구|중원구|분당구)\s*", "", s)
+    s = s.split(",")[0]
+    s = re.sub(r"\s*\(.*$", "", s)
+    s = re.sub(r"\s*(지하|지상)\s*", " ", s)
+    m = re.match(r"(.+?(?:로|길)\s*\d+번길)\s*(\d+(?:-\d+)?)", s)
+    if m:
+        return re.sub(r"\s+", "", m.group(1) + m.group(2))
+    m = re.match(r"(.+?(?:로|길))\s*(\d+(?:-\d+)?)", s)
+    if m:
+        return re.sub(r"\s+", "", m.group(1) + m.group(2))
+    m = re.match(r"([가-힣]+동)\s*(산?\d+(?:-\d+)?)", s)
+    if m:
+        return re.sub(r"\s+", "", m.group(0))
+    return re.sub(r"\s+", "", s)
+
+
+def load_gift():
+    """성남사랑상품권 엑셀 -> 레코드 목록. 파일이 없으면 빈 목록."""
+    if not os.path.exists(GIFT):
+        print("! 성남상품권 자료 없음 (crawl_gift.py 를 먼저 실행하세요). 아동수당만 씁니다.")
+        return []
+    import warnings
+    warnings.filterwarnings("ignore", category=UserWarning)
+    import openpyxl
+
+    ws = openpyxl.load_workbook(GIFT, read_only=True).active
+    out, seen = [], set()
+    for i, r in enumerate(ws.iter_rows(values_only=True)):
+        if i == 0 or not r or not r[2]:
+            continue
+        name, gu, addr = clean(r[2]), clean(r[3]), clean(r[4])
+        key = (norm_name(name), gu, norm_addr(addr))
+        if key in seen:
+            continue
+        seen.add(key)
+        pay = clean(r[7])
+        out.append({
+            "n": name, "gu": gu, "a": addr, "p": phone_digits(r[6]),
+            "sector": clean(r[1]),
+            "gt": 3 if "지류" in pay and "모바일" in pay else (1 if "지류" in pay else (2 if "모바일" in pay else 0)),
+        })
+    return out
 
 
 def short_addr(addr):
@@ -230,6 +309,63 @@ def main():
         deduped.append(v)
     dup_removed = len(recs) - len(deduped)
     recs = deduped
+    for v in recs:
+        v["pay"] = PAY_CHILD
+        v["gt"] = 0
+
+    # ---- 성남사랑상품권 자료 합치기 ----
+    gift = load_gift()
+    stats = collections.Counter()
+    if gift:
+        by_na, by_n, by_p = (collections.defaultdict(list) for _ in range(3))
+        addr_xy = {}
+        for v in recs:
+            gu = GU[v["g"]] if v["g"] >= 0 else ""
+            na = norm_addr(v["a"])
+            by_na[(norm_name(v["n"]), gu, na)].append(v)
+            by_n[(norm_name(v["n"]), gu)].append(v)
+            if v["p"]:
+                by_p[v["p"]].append(v)
+            if v["y"] is not None and len(na) > 3:
+                addr_xy.setdefault((gu, na), (v["y"], v["x"]))
+
+        for g in gift:
+            na = norm_addr(g["a"])
+            hit = None
+            kna = (norm_name(g["n"]), g["gu"], na)
+            kn = (norm_name(g["n"]), g["gu"])
+            if kna in by_na:
+                hit = by_na[kna][0]
+                stats["이름+구+주소"] += 1
+            elif g["p"] and len(by_p.get(g["p"], [])) == 1:
+                hit = by_p[g["p"]][0]
+                stats["전화번호"] += 1
+            elif len(by_n.get(kn, [])) == 1:
+                hit = by_n[kn][0]
+                stats["이름+구"] += 1
+
+            if hit:
+                hit["pay"] |= PAY_GIFT
+                hit["gt"] = max(hit["gt"], g["gt"])
+                continue
+
+            # 아동수당 목록에 없는 상품권 전용 가맹점 -> 새 항목으로 추가.
+            # 좌표는 같은 주소의 다른 가맹점 것을 빌려 쓴다 (같은 건물이면 핀 위치는 같다).
+            xy = addr_xy.get((g["gu"], na))
+            stats["상품권 전용"] += 1
+            if xy is None:
+                stats["  (좌표없음)"] += 1
+            recs.append({
+                "n": g["n"],
+                "a": short_addr(g["a"]),
+                "g": GU.index(g["gu"]) if g["gu"] in GU else -1,
+                "c": g["sector"] or "기타",
+                "p": g["p"],
+                "y": xy[0] if xy else None,
+                "x": xy[1] if xy else None,
+                "pay": PAY_GIFT,
+                "gt": g["gt"],
+            })
 
     # 한글로 시작하는 상호를 앞에 둔다. 기호로 시작하는 법인명이 목록 첫 화면을
     # 채우면 "(#)..." "((본사직영))..." 만 보여서 무슨 목록인지 알아보기 어렵다.
@@ -258,6 +394,7 @@ def main():
         "updated": datetime.date.today().isoformat(),
         "source": "신한카드 성남시 아동수당 포인트 가맹점 찾기",
         "gu": GU,
+        "giftTypes": GIFT_TYPES,
         "groupKeys": GROUP_KEYS,
         "groupLabels": [GROUP_LABEL[k] for k in GROUP_KEYS],
         "subs": sub_list,
@@ -272,14 +409,20 @@ def main():
         "p": [v["p"] for v in recs],
         "y": [v["y"] for v in recs],
         "x": [v["x"] for v in recs],
+        "pay": [v["pay"] for v in recs],
+        "gt": [v["gt"] for v in recs],
     }
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
 
     nocoord = sum(1 for v in recs if v["y"] is None)
     gcount = collections.Counter(GROUP_LABEL[catmap[v["c"]][0]] for v in recs)
+    paycount = collections.Counter(v["pay"] for v in recs)
     print(f"총 {len(recs):,}건 (중복 {dup_removed:,}건 제거) / 좌표없음 {nocoord:,}건 "
           f"(범위 이탈 {out_of_range:,}건)")
+    print(f"결제수단: 아동수당만 {paycount[1]:,} · 상품권만 {paycount[2]:,} · 둘 다 {paycount[3]:,}")
+    if stats:
+        print("상품권 대조:", ", ".join(f"{k} {v:,}" for k, v in stats.most_common()))
     print("구별  :", dict(collections.Counter((GU[v['g']] if v['g'] >= 0 else '(주소없음)') for v in recs)))
     print("그룹별:", dict(gcount))
     print(f"\n세부 업종 {len(sub_list)}개")

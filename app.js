@@ -1,4 +1,4 @@
-/* 성남시 아동수당 포인트 가맹점 찾기
+/* 성남 아동수당 포인트 · 성남사랑상품권 가맹점 찾기
    데이터: merchants.json — 필드별 배열(컬럼) 구조. 한 건은 인덱스 하나로 다룬다. */
 'use strict';
 
@@ -36,6 +36,15 @@ const STATIONS = [
 ];
 const RADII = [300, 500, 1000];
 
+// 결제수단 비트: 1=아동수당 포인트, 2=성남사랑상품권
+const PAY_CHILD = 1, PAY_GIFT = 2;
+const PAY_FILTERS = [
+  { v: 0, label: '전체' },
+  { v: 1, label: '아동수당' },
+  { v: 2, label: '상품권' },
+  { v: 3, label: '둘 다' },
+];
+
 const GROUP_COLOR = {
   food: '#FF5A1F', mart: '#00A05A', med: '#E8334A', edu: '#1B45FF',
   beauty: '#9B3BE8', fashion: '#E0348C', leisure: '#009BB0', life: '#6A7280',
@@ -44,6 +53,7 @@ const GROUP_COLOR = {
 const $ = (id) => document.getElementById(id);
 const el = {
   q: $('q'), clear: $('clear'), hit: $('hit'), scope: $('scope'),
+  payChips: $('payChips'),
   placeChips: $('placeChips'), radiusChips: $('radiusChips'),
   catChips: $('catChips'), subChips: $('subChips'),
   tabList: $('tabList'), tabMap: $('tabMap'), paneList: $('paneList'), paneMap: $('paneMap'),
@@ -51,7 +61,8 @@ const el = {
   map: $('map'), mapkey: $('mapkey'), keyInput: $('keyInput'), keySave: $('keySave'),
   originHint: $('originHint'), mapreset: $('mapreset'),
   sheet: $('sheet'), sheetClose: $('sheetClose'), sheetCat: $('sheetCat'),
-  sheetName: $('sheetName'), sheetAddr: $('sheetAddr'), sheetActs: $('sheetActs'),
+  sheetName: $('sheetName'), sheetAddr: $('sheetAddr'),
+  sheetPay: $('sheetPay'), sheetActs: $('sheetActs'),
   footMeta: $('footMeta'),
 };
 
@@ -69,6 +80,7 @@ const filter = {
   radius: 500,
   group: '',
   sub: -1,
+  pay: 0,        // 0=전체, 1=아동수당, 2=상품권, 3=둘 다
 };
 
 /* ---------------- 데이터 접근 ---------------- */
@@ -134,6 +146,7 @@ function search() {
     if (!st && filter.gu >= 0 && D.g[i] !== filter.gu) continue;
     if (filter.group && groupOf(i) !== filter.group) continue;
     if (filter.sub >= 0 && D.catSub[D.c[i]] !== filter.sub) continue;
+    if (filter.pay === 3 ? D.pay[i] !== 3 : filter.pay && !(D.pay[i] & filter.pay)) continue;
     if (q) {
       if (cho ? !CHO[i].includes(q) : !NORM[i].includes(q)) continue;
     }
@@ -168,6 +181,9 @@ function updateTally() {
   }
   if (filter.sub >= 0) parts.push(D.subs[filter.sub]);
   else if (filter.group) parts.push(D.groupLabels[D.groupKeys.indexOf(filter.group)]);
+  if (filter.pay === 3) parts.push('아동수당+상품권');
+  else if (filter.pay === 1) parts.push('아동수당');
+  else if (filter.pay === 2) parts.push('상품권');
   if (filter.q.trim()) parts.push(`"${filter.q.trim()}"`);
   el.scope.textContent = parts.length
     ? `${parts.join(' · ')} — 전체 ${D.n.length.toLocaleString('ko-KR')}곳 중`
@@ -181,6 +197,15 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 const PIN_SVG = '<svg viewBox="0 0 24 24"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg>';
 const TEL_SVG = '<svg viewBox="0 0 24 24"><path d="M5 3h4l2 5-2.5 1.5a12 12 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2Z"/></svg>';
+
+/** 결제 가능 수단 배지. 이 앱이 답하려는 질문이라 상호 바로 옆에 붙인다. */
+function payBadges(i) {
+  const p = D.pay[i];
+  let out = '';
+  if (p & PAY_CHILD) out += '<span class="pay pay--child">아동수당</span>';
+  if (p & PAY_GIFT) out += '<span class="pay pay--gift">상품권</span>';
+  return out;
+}
 
 const fmtDist = (m) => (m < 1000 ? `${Math.round(m / 10) * 10}m` : `${(m / 1000).toFixed(1)}km`);
 
@@ -205,7 +230,7 @@ function renderMore() {
     return `<li class="row" data-n="${shown + n}">` +
       `<span class="row__bar" style="background:${colorOf(i)}"></span>` +
       `<div class="row__body">` +
-        `<p class="row__name">${highlight(D.n[i])}</p>` +
+        `<p class="row__name">${highlight(D.n[i])}${payBadges(i)}</p>` +
         `<p class="row__meta">${walk}${esc(meta)}</p>` +
       `</div>` +
       `<div class="row__acts">` +
@@ -231,6 +256,16 @@ function openSheet(i) {
   el.sheetCat.style.color = colorOf(i);
   el.sheetName.textContent = D.n[i];
   el.sheetAddr.textContent = fullAddr(i) ? `성남시 ${fullAddr(i)}` : '주소 정보 없음';
+
+  const p = D.pay[i];
+  const gift = p & PAY_GIFT
+    ? (D.gt[i] ? `${D.giftTypes[D.gt[i]]} 가능` : '사용 가능')
+    : '';
+  el.sheetPay.innerHTML =
+    `<div class="paylist__row${p & PAY_CHILD ? ' is-yes' : ''}">` +
+      `<dt>아동수당 포인트</dt><dd>${p & PAY_CHILD ? '사용 가능' : '자료에 없음'}</dd></div>` +
+    `<div class="paylist__row${p & PAY_GIFT ? ' is-yes' : ''}">` +
+      `<dt>성남사랑상품권</dt><dd>${p & PAY_GIFT ? esc(gift) : '자료에 없음'}</dd></div>`;
 
   const acts = [];
   if (D.y[i] !== null) {
@@ -410,6 +445,20 @@ async function tryBootMap(key, fromUser) {
 const SUBWAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="13" rx="4"/><path d="M8 19l-2 2M16 19l2 2M5 11h14"/></svg>';
 const BACK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg>';
 
+function buildPayChips() {
+  const counts = [0, 0, 0, 0];
+  for (let i = 0; i < D.n.length; i++) {
+    counts[0]++;
+    if (D.pay[i] & PAY_CHILD) counts[1]++;
+    if (D.pay[i] & PAY_GIFT) counts[2]++;
+    if (D.pay[i] === 3) counts[3]++;
+  }
+  el.payChips.innerHTML = PAY_FILTERS.map((f, n) =>
+    `<button class="chip chip--sm${filter.pay === f.v ? ' is-on' : ''}" data-pay="${f.v}">` +
+    `${esc(f.label)} <span style="opacity:.55">${counts[n].toLocaleString('ko-KR')}</span></button>`
+  ).join('') + '<span class="chips__hint">결제수단</span>';
+}
+
 /** 자치구 모드 <-> 역 주변 모드. 두 줄을 쓰지 않도록 한 줄에서 갈아끼운다. */
 function buildPlaceChips() {
   if (filter.place === 'gu') {
@@ -528,6 +577,14 @@ async function init() {
   });
   el.more.addEventListener('click', renderMore);
 
+  el.payChips.addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    filter.pay = Number(b.dataset.pay);
+    el.payChips.querySelectorAll('.chip').forEach((c) => c.classList.toggle('is-on', c === b));
+    search();
+  });
+
   el.placeChips.addEventListener('click', (e) => {
     const b = e.target.closest('.chip');
     if (!b) return;
@@ -613,6 +670,7 @@ async function init() {
   el.footMeta.textContent =
     `가맹점 ${D.n.length.toLocaleString('ko-KR')}곳 · 자료 기준일 ${D.updated}`;
 
+  buildPayChips();
   buildPlaceChips();
   buildCatChips();
   search();
