@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>성남시 아동수당 쓸 수 있는 가게</title>
+<meta name="description" content="성남시 아동수당 포인트 가맹점을 이름으로 바로 검색하고 지도에서 위치를 확인합니다.">
+<meta name="theme-color" content="#14161A">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%BE%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="skip" href="#list">검색 결과로 건너뛰기</a>
+
+<header class="masthead">
+  <div class="masthead__inner">
+    <p class="eyebrow">성남시 아동수당 포인트</p>
+    <h1 class="title">쓸 수 있는<br><em>가게 찾기</em></h1>
+  </div>
+</header>
+
+<div class="controls">
+  <div class="controls__inner">
+    <div class="search">
+      <svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/>
+      </svg>
+      <input id="q" type="search" inputmode="search" autocomplete="off"
+             placeholder="가게 이름 (초성도 됩니다)" aria-label="가맹점 이름 검색">
+      <button id="clear" class="search__clear" type="button" aria-label="검색어 지우기" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <p class="tally" aria-live="polite">
+      <span class="tally__num" id="hit">—</span><span class="tally__unit">곳</span>
+      <span class="tally__of" id="scope">데이터를 불러오는 중</span>
+    </p>
+
+    <div class="filters">
+      <div class="chips" id="guChips" role="group" aria-label="자치구 선택">
+        <button class="chip is-on" data-gu="">전체</button>
+        <button class="chip" data-gu="수정구">수정구</button>
+        <button class="chip" data-gu="중원구">중원구</button>
+        <button class="chip" data-gu="분당구">분당구</button>
+      </div>
+      <div class="chips" id="catChips" role="group" aria-label="업종 선택"></div>
+    </div>
+
+    <nav class="seg" role="tablist" aria-label="보기 방식">
+      <button class="seg__btn is-on" id="tabList" role="tab" aria-selected="true" aria-controls="paneList">목록</button>
+      <button class="seg__btn" id="tabMap" role="tab" aria-selected="false" aria-controls="paneMap">지도</button>
+    </nav>
+  </div>
+</div>
+
+<main class="panes">
+  <section class="pane pane--list is-on" id="paneList" role="tabpanel" aria-labelledby="tabList">
+    <ol class="list" id="list"></ol>
+    <div class="list__foot">
+      <button class="more" id="more" type="button" hidden>더 보기</button>
+      <p class="empty" id="empty" hidden>
+        <strong>찾는 가게가 없습니다.</strong>
+        가게 이름 일부만 넣거나, 구·업종 필터를 풀어 보세요.
+      </p>
+    </div>
+  </section>
+
+  <section class="pane pane--map" id="paneMap" role="tabpanel" aria-labelledby="tabMap">
+    <div class="map" id="map"></div>
+
+    <div class="mapkey" id="mapkey">
+      <div class="mapkey__card">
+        <h2>지도를 켜려면 카카오 앱키가 필요합니다</h2>
+        <ol class="mapkey__steps">
+          <li><a href="https://developers.kakao.com/console/app" target="_blank" rel="noopener">카카오 개발자센터</a>에서 앱을 만듭니다.</li>
+          <li><b>플랫폼 &gt; Web</b>에 이 페이지 주소를 등록합니다.<br>
+              <code id="originHint">—</code></li>
+          <li><b>앱 키 &gt; JavaScript 키</b>를 복사해 아래에 붙여넣습니다.</li>
+        </ol>
+        <div class="mapkey__form">
+          <input id="keyInput" type="text" placeholder="JavaScript 키 붙여넣기" autocomplete="off" spellcheck="false">
+          <button id="keySave" type="button">지도 켜기</button>
+        </div>
+        <p class="mapkey__note">키는 이 브라우저에만 저장됩니다. 목록 검색은 키 없이도 그대로 됩니다.</p>
+      </div>
+    </div>
+
+    <button class="mapreset" id="mapreset" type="button" hidden>검색 결과 전체 보기</button>
+  </section>
+</main>
+
+<div class="sheet" id="sheet" hidden>
+  <button class="sheet__close" id="sheetClose" type="button" aria-label="닫기">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+  <p class="sheet__cat" id="sheetCat"></p>
+  <h2 class="sheet__name" id="sheetName"></h2>
+  <p class="sheet__addr" id="sheetAddr"></p>
+  <div class="sheet__acts" id="sheetActs"></div>
+</div>
+
+<footer class="foot">
+  <p>자료 출처 — 신한카드 <b>성남시 아동수당 포인트 가맹점 찾기</b>.
+     가맹점은 수시로 바뀝니다. 결제 전 가게에 한 번 확인하세요.</p>
+  <p class="foot__meta" id="footMeta"></p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
