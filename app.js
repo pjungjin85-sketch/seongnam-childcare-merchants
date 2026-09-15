@@ -198,6 +198,20 @@ function markerImage(group) {
   return img;
 }
 
+/** 기본 클러스터(연두/노랑)는 앱 색과 따로 논다. 잉크색 원 + 큰 묶음만 주황으로. */
+function clusterStyles() {
+  const tiers = [[34, 13], [42, 14], [50, 15], [58, 16]];
+  return tiers.map(([size, font], i) => ({
+    width: `${size}px`, height: `${size}px`, lineHeight: `${size}px`,
+    background: i === tiers.length - 1 ? 'rgba(255,90,31,.92)' : 'rgba(20,22,26,.86)',
+    color: '#fff', textAlign: 'center', borderRadius: '50%',
+    border: '2px solid rgba(255,255,255,.9)',
+    boxShadow: '0 3px 10px rgba(20,22,26,.35)',
+    fontSize: `${font}px`, fontWeight: '700',
+    fontFamily: "'Pretendard Variable',Pretendard,sans-serif",
+  }));
+}
+
 function syncMarkers() {
   if (!map || !clusterer) return;
 
@@ -244,7 +258,7 @@ function fitToResults() {
   }
   const b = new kakao.maps.LatLngBounds();
   markers.forEach((mk) => b.extend(mk.getPosition()));
-  map.setBounds(b, 40, 40, 40, 40);
+  map.setBounds(b, 24, 24, 24, 24);
 }
 
 function bootMap(key) {
@@ -261,6 +275,8 @@ function bootMap(key) {
           });
           clusterer = new kakao.maps.MarkerClusterer({
             map, averageCenter: true, minLevel: 6,
+            calculator: [10, 100, 1000],
+            styles: clusterStyles(),
           });
           el.mapkey.hidden = true;
           syncMarkers();
