@@ -481,7 +481,7 @@ function bootMap(key) {
           updateMapHint(withPos.length, Math.min(withPos.length, MARKER_CAP));
         });
         clusterer = new kakao.maps.MarkerClusterer({
-            map, averageCenter: true, minLevel: 6,
+            map, averageCenter: true, minLevel: 3,   // 가맹점이 빽빽해 어지간히 확대해도 묶어 준다
             calculator: [10, 100, 1000],
             styles: clusterStyles(),
           });
