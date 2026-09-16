@@ -145,7 +145,7 @@ function search() {
   for (let i = 0; i < n; i++) {
     if (!st && filter.gu >= 0 && D.g[i] !== filter.gu) continue;
     if (filter.group && groupOf(i) !== filter.group) continue;
-    if (filter.sub >= 0 && D.catSub[D.c[i]] !== filter.sub) continue;
+    if (filter.sub >= 0 && D.sb[i] !== filter.sub) continue;
     if (filter.pay === 3 ? D.pay[i] !== 3 : filter.pay && !(D.pay[i] & filter.pay)) continue;
     if (q) {
       if (cho ? !CHO[i].includes(q) : !NORM[i].includes(q)) continue;
@@ -523,7 +523,7 @@ function buildSubChips() {
   const gi = D.groupKeys.indexOf(filter.group);
   const counts = {};
   for (let i = 0; i < D.n.length; i++) {
-    const s = D.catSub[D.c[i]];
+    const s = D.sb[i];
     if (D.subGroup[s] === gi) counts[s] = (counts[s] || 0) + 1;
   }
   const subs = Object.keys(counts).map(Number).sort((a, b) => counts[b] - counts[a]);

@@ -481,6 +481,23 @@ def main():
     cat_group = [GROUP_KEYS.index(catmap[c][0]) for c in cats]
     cat_sub = [sub_idx[catmap[c]] for c in cats]
 
+    # 세부 업종은 가맹점별로 따로 둔다. 원본 업종이 실제와 어긋나는 경우가 많아서다.
+    # 예: 상호에 '카페/커피'가 든 1,135곳 중 68%가 '일반대중음식'으로 등록돼 있다.
+    # 먹거리 안에서만 옮기므로 '카페베네빌딩'(부동산) 같은 건 건드리지 않는다.
+    cafe_pat = re.compile(r"카페|커피|coffee|cafe|café", re.I)
+    food_gi = GROUP_KEYS.index("food")
+    cafe_sub = sub_idx.get(("food", "카페·제과"))
+    moved = 0
+    rec_sub = []
+    for v in recs:
+        ci = cat_idx[v["c"]]
+        s = cat_sub[ci]
+        if (cafe_sub is not None and cat_group[ci] == food_gi and s != cafe_sub
+                and cafe_pat.search(v["n"])):
+            s = cafe_sub
+            moved += 1
+        rec_sub.append(s)
+
     payload = {
         "updated": datetime.date.today().isoformat(),
         "source": "신한카드 성남시 아동수당 포인트 가맹점 찾기",
@@ -493,6 +510,7 @@ def main():
         "cats": cats,
         "catGroup": cat_group,
         "catSub": cat_sub,
+        "sb": rec_sub,
         "n": [v["n"] for v in recs],
         "a": [v["a"] for v in recs],
         "g": [v["g"] for v in recs],
@@ -518,10 +536,13 @@ def main():
         print(f"같은 가게로 보고 결제수단 맞춘 항목: {merged_flags:,}건")
     if plate_n:
         print(f"상호가 차량번호라 지도에서 뺀 항목: {plate_n:,}건")
+    if moved:
+        print(f"상호를 보고 '카페·제과'로 옮긴 항목: {moved:,}건")
     print("구별  :", dict(collections.Counter((GU[v['g']] if v['g'] >= 0 else '(주소없음)') for v in recs)))
     print("그룹별:", dict(gcount))
     print(f"\n세부 업종 {len(sub_list)}개")
-    scount = collections.Counter((catmap[v["c"]][0], catmap[v["c"]][1]) for v in recs)
+    scount = collections.Counter((GROUP_KEYS[sub_group[rec_sub[i]]], sub_list[rec_sub[i]])
+                                 for i in range(len(recs)))
     for g in GROUP_KEYS:
         items = [(s, n) for (gg, s), n in scount.items() if gg == g]
         items.sort(key=lambda t: -t[1])
