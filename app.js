@@ -85,9 +85,16 @@ const filter = {
 
 /* ---------------- 데이터 접근 ---------------- */
 
-const groupOf = (i) => D.groupKeys[D.catGroup[D.c[i]]];
+const groupOf = (i) => D.groupKeys[D.gp[i]];
 const colorOf = (i) => GROUP_COLOR[groupOf(i)] || GROUP_COLOR.life;
-const catOf = (i) => D.cats[D.c[i]];
+const COARSE = new Set(['음식점업','소매업','보건업','교육서비스업',
+  '스포츠및여가관련서비스업','서비스업','제조업및기타','기타']);
+/** 표시용 업종명. 상품권 자료의 품목은 7종뿐이라 세부 업종 쪽이 더 알려준다. */
+const catOf = (i) => {
+  const c = D.cats[D.c[i]];
+  const sub = D.subs[D.sb[i]];
+  return (COARSE.has(c) && sub !== '기타') ? sub : c;
+};
 const guOf = (i) => (D.g[i] >= 0 ? D.gu[D.g[i]] : '');
 
 function fullAddr(i) {
@@ -251,6 +258,21 @@ function renderMore() {
 
 /* ---------------- 상세 시트 ---------------- */
 
+const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+/** 카카오맵에서 이 가게를 여는 주소.
+ *
+ * 좌표를 넘기는 link/map 은 쓰지 않는다. 휴대폰에서는 applink.map.kakao.com 의
+ * 앱 설치 안내 페이지로 빠져 '지도만 열리고 아무것도 안 나오는' 상태가 된다.
+ * 상호+주소로 검색하면 가게 정보(영업시간·전화·사진)가 붙은 실제 장소가 열린다.
+ */
+function kakaoPlaceUrl(i) {
+  const q = encodeURIComponent(`${D.n[i]} ${fullAddr(i)}`.trim());
+  return IS_MOBILE
+    ? `https://m.map.kakao.com/actions/searchView?q=${q}`
+    : `https://map.kakao.com/?q=${q}`;
+}
+
 function openSheet(i) {
   el.sheetCat.textContent = catOf(i);
   el.sheetCat.style.color = colorOf(i);
@@ -273,13 +295,10 @@ function openSheet(i) {
   el.sheetNote.hidden = !p;
 
   const acts = [];
+  acts.push(`<a class="primary" href="${kakaoPlaceUrl(i)}" target="_blank" rel="noopener">카카오맵에서 보기</a>`);
   if (D.y[i] !== null) {
     const p = `${encodeURIComponent(D.n[i])},${D.y[i]},${D.x[i]}`;
-    acts.push(`<a class="primary" href="https://map.kakao.com/link/to/${p}" target="_blank" rel="noopener">길찾기</a>`);
-    acts.push(`<a href="https://map.kakao.com/link/map/${p}" target="_blank" rel="noopener">카카오맵에서 보기</a>`);
-  } else {
-    const term = encodeURIComponent(`${D.n[i]} ${fullAddr(i)}`);
-    acts.push(`<a class="primary" href="https://map.kakao.com/link/search/${term}" target="_blank" rel="noopener">카카오맵에서 찾기</a>`);
+    acts.push(`<a href="https://map.kakao.com/link/to/${p}" target="_blank" rel="noopener">길찾기</a>`);
   }
   const phone = fmtPhone(D.p[i]);
   if (phone) acts.push(`<a href="tel:${esc(D.p[i])}">${esc(phone)}</a>`);
@@ -524,7 +543,7 @@ function buildSubChips() {
   const counts = {};
   for (let i = 0; i < D.n.length; i++) {
     const s = D.sb[i];
-    if (D.subGroup[s] === gi) counts[s] = (counts[s] || 0) + 1;
+    if (D.gp[i] === gi) counts[s] = (counts[s] || 0) + 1;
   }
   const subs = Object.keys(counts).map(Number).sort((a, b) => counts[b] - counts[a]);
   if (subs.length < 2) {           // 나눌 게 없으면 줄을 만들지 않는다

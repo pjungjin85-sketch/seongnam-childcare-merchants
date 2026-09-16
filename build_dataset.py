@@ -481,22 +481,62 @@ def main():
     cat_group = [GROUP_KEYS.index(catmap[c][0]) for c in cats]
     cat_sub = [sub_idx[catmap[c]] for c in cats]
 
+    # 상호로 업태가 분명한 것들. 상품권 전용 가맹점은 업종이 '서비스업' 같은 7종뿐이라
+    # 전부 '기타'로 들어가는데, 이름만 봐도 아는 것들은 제자리로 보낸다.
+    # 순서가 중요하다 (동물병원·치과·한의원이 '병원/의원'보다 앞).
+    NAME_RULES = [
+        (r"강아지유치원|애견유치원|펫유치원", "life", "반려동물"),
+        (r"동물병원|동물의료|펫클리닉", "med", "동물병원"),
+        (r"치과", "med", "치과"),
+        (r"한의원|한약방", "med", "한의원"),
+        (r"약국", "med", "약국"),
+        (r"의원|병원", "med", "병원"),
+        (r"유치원|어린이집", "edu", "유치원"),
+        (r"독서실|스터디카페", "edu", "독서실"),
+        (r"학원|교습소", "edu", "학원"),
+        (r"\bCU\b|GS25|세븐일레븐|이마트24|미니스톱|편의점", "mart", "편의점"),
+        (r"정육|축산물", "mart", "정육"),
+        (r"베이커리|제과점|빵집", "food", "카페·제과"),
+        (r"헤어|미용실|바버|이발관", "beauty", "미용실"),
+        (r"네일|피부관리|에스테틱", "beauty", "피부·체형"),
+        (r"안경원|안경점|안경", "fashion", "안경"),
+        (r"노래방|코인노래|PC방|피시방|당구장|볼링장", "leisure", "오락"),
+        (r"세탁소|크리닝|클리닝", "life", "생활서비스"),
+        (r"플라워|꽃집|화원", "life", "꽃·원예"),
+    ]
+    NAME_RULES = [(re.compile(p, re.I), g, s) for p, g, s in NAME_RULES]
+
     # 세부 업종은 가맹점별로 따로 둔다. 원본 업종이 실제와 어긋나는 경우가 많아서다.
     # 예: 상호에 '카페/커피'가 든 1,135곳 중 68%가 '일반대중음식'으로 등록돼 있다.
     # 먹거리 안에서만 옮기므로 '카페베네빌딩'(부동산) 같은 건 건드리지 않는다.
     cafe_pat = re.compile(r"카페|커피|coffee|cafe|café", re.I)
     food_gi = GROUP_KEYS.index("food")
     cafe_sub = sub_idx.get(("food", "카페·제과"))
-    moved = 0
-    rec_sub = []
+
+    moved = filled = 0
+    rec_sub, rec_grp = [], []
     for v in recs:
         ci = cat_idx[v["c"]]
-        s = cat_sub[ci]
-        if (cafe_sub is not None and cat_group[ci] == food_gi and s != cafe_sub
+        g, s = cat_group[ci], cat_sub[ci]
+
+        # ① 세부가 '기타'뿐이면 상호를 보고 채운다 (상품권 전용 가맹점이 대부분)
+        if sub_list[s] == OTHER_SUB:
+            for rx, rg, rs in NAME_RULES:
+                key = (rg, rs)
+                if key in sub_idx and rx.search(v["n"]):
+                    g, s = GROUP_KEYS.index(rg), sub_idx[key]
+                    filled += 1
+                    break
+
+        # ② 먹거리 안에서는 상호에 카페/커피가 들면 '카페·제과'로 옮긴다.
+        #    원본이 '일반대중음식'으로 등록해 둔 카페가 많다.
+        if (cafe_sub is not None and g == food_gi and s != cafe_sub
                 and cafe_pat.search(v["n"])):
             s = cafe_sub
             moved += 1
+
         rec_sub.append(s)
+        rec_grp.append(g)
 
     payload = {
         "updated": datetime.date.today().isoformat(),
@@ -511,6 +551,7 @@ def main():
         "catGroup": cat_group,
         "catSub": cat_sub,
         "sb": rec_sub,
+        "gp": rec_grp,
         "n": [v["n"] for v in recs],
         "a": [v["a"] for v in recs],
         "g": [v["g"] for v in recs],
@@ -525,7 +566,7 @@ def main():
         json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
 
     nocoord = sum(1 for v in recs if v["y"] is None)
-    gcount = collections.Counter(GROUP_LABEL[catmap[v["c"]][0]] for v in recs)
+    gcount = collections.Counter(GROUP_LABEL[GROUP_KEYS[rec_grp[i]]] for i in range(len(recs)))
     paycount = collections.Counter(v["pay"] for v in recs)
     print(f"총 {len(recs):,}건 (중복 {dup_removed:,}건 제거) / 좌표없음 {nocoord:,}건 "
           f"(범위 이탈 {out_of_range:,}건)")
@@ -536,12 +577,14 @@ def main():
         print(f"같은 가게로 보고 결제수단 맞춘 항목: {merged_flags:,}건")
     if plate_n:
         print(f"상호가 차량번호라 지도에서 뺀 항목: {plate_n:,}건")
+    if filled:
+        print(f"상호를 보고 세부 업종을 채운 항목: {filled:,}건")
     if moved:
         print(f"상호를 보고 '카페·제과'로 옮긴 항목: {moved:,}건")
     print("구별  :", dict(collections.Counter((GU[v['g']] if v['g'] >= 0 else '(주소없음)') for v in recs)))
     print("그룹별:", dict(gcount))
     print(f"\n세부 업종 {len(sub_list)}개")
-    scount = collections.Counter((GROUP_KEYS[sub_group[rec_sub[i]]], sub_list[rec_sub[i]])
+    scount = collections.Counter((GROUP_KEYS[rec_grp[i]], sub_list[rec_sub[i]])
                                  for i in range(len(recs)))
     for g in GROUP_KEYS:
         items = [(s, n) for (gg, s), n in scount.items() if gg == g]
