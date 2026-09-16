@@ -1,0 +1,14 @@
+{
+  "name": "성남 아동수당·상품권 쓸 수 있는 가게",
+  "short_name": "가게 찾기",
+  "description": "가게 이름만 넣으면 아동수당 포인트와 성남사랑상품권 중 무엇을 쓸 수 있는지 알려줍니다.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#14161A",
+  "theme_color": "#14161A",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
