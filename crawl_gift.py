@@ -8,6 +8,7 @@
 좌표는 build_dataset.py 에서 아동수당 자료의 주소-좌표 표로 채운다.
 """
 import os
+import ssl
 import urllib.parse
 import urllib.request
 
@@ -29,6 +30,21 @@ FORM = {
 }
 
 
+def ssl_context():
+    """성남시 서버가 오래된 TLS 설정을 써서 리눅스 기본값으로는 핸드셰이크가 깨진다.
+
+    macOS 에서는 되는데 우분투(OpenSSL 3.x, SECLEVEL=2)에서
+    SSLV3_ALERT_HANDSHAKE_FAILURE 가 난다. 보안 수준만 한 단계 낮춰 준다.
+    """
+    ctx = ssl.create_default_context()
+    try:
+        ctx.set_ciphers("DEFAULT@SECLEVEL=1")
+    except ssl.SSLError:
+        pass
+    ctx.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+    return ctx
+
+
 def main():
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     req = urllib.request.Request(
@@ -41,7 +57,7 @@ def main():
             "Content-Type": "application/x-www-form-urlencoded",
         },
     )
-    with urllib.request.urlopen(req, timeout=120) as r:
+    with urllib.request.urlopen(req, timeout=120, context=ssl_context()) as r:
         ctype = r.headers.get("Content-Type", "")
         body = r.read()
 
