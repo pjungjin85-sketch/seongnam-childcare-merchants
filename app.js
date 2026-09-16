@@ -70,11 +70,13 @@ let D = null;          // 원본 컬럼 데이터
 let NORM = null;       // 검색용 정규화 이름
 let CHO = null;        // 초성 인덱스 (처음 초성 검색할 때 만든다)
 let results = [];      // 결과 인덱스 배열
-let DIST = null;       // 역 모드일 때 인덱스 -> 역까지 거리(m)
+let DIST = null;       // 기준점 모드일 때 인덱스 -> 기준점까지 거리(m)
+let MY = null;         // 내 위치 (geolocation)
+let refitNext = false; // 다음 갱신에서 지도를 결과에 맞출지
 let shown = 0;
 const filter = {
   q: '',
-  place: 'gu',    // 'gu' = 자치구로 고르기, 'station' = 역 주변으로 고르기
+  place: 'gu',    // 'gu' 자치구 | 'station' 역 주변 | 'me' 내 위치 주변
   gu: -1,
   station: -1,
   radius: 500,
@@ -131,6 +133,16 @@ function buildChosung() {
   }
 }
 
+/** 거리 기준점. 역을 골랐으면 그 역, 내 위치 모드면 현재 위치. */
+function anchorPoint() {
+  if (filter.place === 'station' && filter.station >= 0) {
+    const s = STATIONS[filter.station];
+    return { y: s.y, x: s.x, label: `${s.n}역` };
+  }
+  if (filter.place === 'me' && MY) return { y: MY.y, x: MY.x, label: '내 위치' };
+  return null;
+}
+
 /** 두 좌표 사이 거리(m). 성남 정도 범위면 평면 근사로 충분하다. */
 function metersBetween(lat1, lon1, lat2, lon2) {
   const dy = (lat1 - lat2) * 111320;
@@ -138,13 +150,15 @@ function metersBetween(lat1, lon1, lat2, lon2) {
   return Math.sqrt(dy * dy + dx * dx);
 }
 
+let ANCHOR_LABEL = '';
+
 function search() {
   const raw = filter.q.trim();
   const q = norm(raw);
   const cho = q && isChosung(q);
   if (cho && !CHO) buildChosung();
 
-  const st = filter.place === 'station' && filter.station >= 0 ? STATIONS[filter.station] : null;
+  const st = anchorPoint();
   const dist = st ? new Map() : null;
 
   const out = [];
@@ -169,6 +183,7 @@ function search() {
 
   results = out;
   DIST = dist;
+  ANCHOR_LABEL = st ? st.label : '';
 
   shown = 0;
   el.list.innerHTML = '';
@@ -180,9 +195,12 @@ function search() {
 function updateTally() {
   el.hit.textContent = results.length.toLocaleString('ko-KR');
   const parts = [];
-  if (filter.place === 'station' && filter.station >= 0) {
+  const anchor = anchorPoint();
+  if (anchor) {
     const r = filter.radius >= 1000 ? '1km' : `${filter.radius}m`;
-    parts.push(`${STATIONS[filter.station].n}역 ${r} 이내`);
+    parts.push(`${anchor.label} ${r} 이내`);
+  } else if (filter.place === 'me') {
+    parts.push('내 위치를 잡는 중');
   } else if (filter.gu >= 0) {
     parts.push(D.gu[filter.gu]);
   }
@@ -232,7 +250,7 @@ function renderMore() {
     const meta = [catOf(i), fullAddr(i)].filter(Boolean).join(' · ');
     const d = DIST ? DIST.get(i) : null;
     const walk = d != null
-      ? `<span class="row__dist">${STATIONS[filter.station].n}역 ${fmtDist(d)}</span>`
+      ? `<span class="row__dist">${esc(ANCHOR_LABEL)} ${fmtDist(d)}</span>`
       : '';
     return `<li class="row" data-n="${shown + n}">` +
       `<span class="row__bar" style="background:${colorOf(i)}"></span>` +
@@ -343,29 +361,29 @@ function clusterStyles() {
   }));
 }
 
-let stationCircle = null, stationLabel = null;
+let anchorCircle = null, anchorLabel = null;
 
-/** 역 모드에서 선택한 역과 반경 원을 지도에 겹쳐 그린다. */
-function drawStation() {
-  if (stationCircle) { stationCircle.setMap(null); stationCircle = null; }
-  if (stationLabel) { stationLabel.setMap(null); stationLabel = null; }
+/** 기준점(역 또는 내 위치)과 반경 원을 지도에 겹쳐 그린다. */
+function drawAnchor() {
+  if (anchorCircle) { anchorCircle.setMap(null); anchorCircle = null; }
+  if (anchorLabel) { anchorLabel.setMap(null); anchorLabel = null; }
 
-  const st = filter.place === 'station' && filter.station >= 0 ? STATIONS[filter.station] : null;
+  const st = anchorPoint();
   if (!st || !map) return;
 
   const pos = new kakao.maps.LatLng(st.y, st.x);
-  stationCircle = new kakao.maps.Circle({
+  anchorCircle = new kakao.maps.Circle({
     center: pos, radius: filter.radius,
     strokeWeight: 2, strokeColor: '#1B45FF', strokeOpacity: 0.7, strokeStyle: 'shortdash',
     fillColor: '#1B45FF', fillOpacity: 0.07,
   });
-  stationCircle.setMap(map);
+  anchorCircle.setMap(map);
 
-  stationLabel = new kakao.maps.CustomOverlay({
+  anchorLabel = new kakao.maps.CustomOverlay({
     position: pos, yAnchor: 0.5, zIndex: 5,
-    content: `<div class="stpin">${esc(st.n)}역</div>`,
+    content: `<div class="stpin${filter.place === 'me' ? ' stpin--me' : ''}">${esc(st.label)}</div>`,
   });
-  stationLabel.setMap(map);
+  anchorLabel.setMap(map);
 }
 
 function syncMarkers() {
@@ -396,22 +414,44 @@ function syncMarkers() {
   });
 
   clusterer.addMarkers(markers);
-  drawStation();
+  drawAnchor();
 
-  el.mapreset.hidden = use.length === 0;
-  el.mapreset.textContent = withPos.length > MARKER_CAP
-    ? `결과가 많아 ${MARKER_CAP.toLocaleString('ko-KR')}곳만 표시했습니다`
-    : '검색 결과 전체 보기';
+  // 업종이나 결제수단만 바꿨을 때는 보고 있던 위치를 그대로 둔다.
+  // 확대해서 동네를 보던 중에 지도가 성남 전체로 튀어나가면 쓰기 어렵다.
+  if (refitNext) {
+    refitNext = false;
+    fitToResults();
+  } else {
+    map.relayout();
+  }
+  updateMapHint(withPos.length, use.length);
+}
 
-  fitToResults();
+/** 지금 화면에 몇 곳이 보이는지 알려주고, 밖에 있으면 전체 보기를 권한다. */
+function updateMapHint(total, drawn) {
+  if (!map || !total) { el.mapreset.hidden = true; return; }
+  const b = map.getBounds();
+  let inView = 0;
+  for (const mk of markers) if (b.contain(mk.getPosition())) inView++;
+
+  el.mapreset.hidden = false;
+  if (drawn < total) {
+    el.mapreset.textContent = `결과가 많아 ${drawn.toLocaleString('ko-KR')}곳만 표시했습니다`;
+  } else if (inView === 0) {
+    el.mapreset.textContent = `이 화면에는 없습니다 · 전체 ${total.toLocaleString('ko-KR')}곳 보기`;
+  } else if (inView < total) {
+    el.mapreset.textContent = `이 화면 ${inView.toLocaleString('ko-KR')}곳 · 전체 ${total.toLocaleString('ko-KR')}곳 보기`;
+  } else {
+    el.mapreset.textContent = `전체 ${total.toLocaleString('ko-KR')}곳 보기`;
+  }
 }
 
 function fitToResults() {
   if (!map) return;
 
-  // 역 모드면 결과가 없어도 반경 원이 보이도록 원에 맞춘다
-  if (stationCircle) {
-    map.setBounds(stationCircle.getBounds(), 24, 24, 24, 24);
+  // 기준점 모드면 결과가 없어도 반경 원이 보이도록 원에 맞춘다
+  if (anchorCircle) {
+    map.setBounds(anchorCircle.getBounds(), 24, 24, 24, 24);
     return;
   }
   if (!markers.length) {
@@ -436,12 +476,17 @@ function bootMap(key) {
             center: new kakao.maps.LatLng(SEONGNAM.lat, SEONGNAM.lng),
             level: 7,
           });
-          clusterer = new kakao.maps.MarkerClusterer({
+          kakao.maps.event.addListener(map, 'idle', () => {
+          const withPos = results.filter((i) => D.y[i] !== null);
+          updateMapHint(withPos.length, Math.min(withPos.length, MARKER_CAP));
+        });
+        clusterer = new kakao.maps.MarkerClusterer({
             map, averageCenter: true, minLevel: 6,
             calculator: [10, 100, 1000],
             styles: clusterStyles(),
           });
           el.mapkey.hidden = true;
+          refitNext = true;
           syncMarkers();
           resolve();
         });
@@ -467,6 +512,7 @@ async function tryBootMap(key, fromUser) {
 /* ---------------- UI 조립 ---------------- */
 
 const SUBWAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="13" rx="4"/><path d="M8 19l-2 2M16 19l2 2M5 11h14"/></svg>';
+const PIN_ME_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>';
 const BACK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 6l-6 6 6 6"/></svg>';
 
 function buildPayChips() {
@@ -485,8 +531,17 @@ function buildPayChips() {
 
 /** 자치구 모드 <-> 역 주변 모드. 두 줄을 쓰지 않도록 한 줄에서 갈아끼운다. */
 function buildPlaceChips() {
+  const radiusRow = (hint) => {
+    el.radiusChips.innerHTML = RADII.map((r) =>
+      `<button class="chip chip--sm${filter.radius === r ? ' is-on' : ''}" data-r="${r}">` +
+      `${r >= 1000 ? '1km' : r + 'm'}</button>`).join('') +
+      `<span class="chips__hint">${esc(hint)}</span>`;
+    el.radiusChips.hidden = false;
+  };
+
   if (filter.place === 'gu') {
     const html = [
+      `<button class="chip chip--mode" data-mode="me">${PIN_ME_ICON} 내 주변</button>`,
       `<button class="chip chip--mode" data-mode="station">${SUBWAY_ICON} 역 주변</button>`,
       `<button class="chip${filter.gu < 0 ? ' is-on' : ''}" data-gu="-1">성남 전체</button>`,
     ];
@@ -495,7 +550,10 @@ function buildPlaceChips() {
     });
     el.placeChips.innerHTML = html.join('');
     el.radiusChips.hidden = true;
-  } else {
+    return;
+  }
+
+  if (filter.place === 'station') {
     const html = [`<button class="chip chip--mode" data-mode="gu">${BACK_ICON} 자치구</button>`];
     STATIONS.forEach((s, i) => {
       html.push(
@@ -504,12 +562,45 @@ function buildPlaceChips() {
       );
     });
     el.placeChips.innerHTML = html.join('');
-    el.radiusChips.innerHTML = RADII.map((r) =>
-      `<button class="chip chip--sm${filter.radius === r ? ' is-on' : ''}" data-r="${r}">` +
-      `${r >= 1000 ? '1km' : r + 'm'}</button>`).join('') +
-      `<span class="chips__hint">역에서 걸어서</span>`;
-    el.radiusChips.hidden = false;
+    radiusRow('역에서 걸어서');
+    return;
   }
+
+  // 내 위치 모드
+  el.placeChips.innerHTML =
+    `<button class="chip chip--mode" data-mode="gu">${BACK_ICON} 자치구</button>` +
+    `<button class="chip is-on" data-locate="1">${PIN_ME_ICON} ` +
+    `${MY ? '내 위치 다시 잡기' : '위치 확인 중…'}</button>`;
+  radiusRow('내 위치에서 걸어서');
+}
+
+/** 브라우저 위치 권한을 받아 내 위치를 잡는다. */
+function locateMe() {
+  if (!navigator.geolocation) {
+    alert('이 브라우저는 위치 기능을 지원하지 않습니다.');
+    filter.place = 'gu'; buildPlaceChips(); search();
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      MY = { y: pos.coords.latitude, x: pos.coords.longitude };
+      refitNext = true;
+      buildPlaceChips();
+      search();
+      if (MY.y < 37.28 || MY.y > 37.58 || MY.x < 126.95 || MY.x > 127.35) {
+        el.scope.textContent = '지금 성남시 밖에 있습니다 — 가까운 결과가 없을 수 있어요';
+      }
+    },
+    (err) => {
+      alert(err.code === err.PERMISSION_DENIED
+        ? '위치 권한이 거부됐습니다.\n브라우저 주소창의 자물쇠 아이콘에서 위치를 허용해 주세요.'
+        : '위치를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      filter.place = 'gu';
+      buildPlaceChips();
+      search();
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+  );
 }
 
 function buildCatChips() {
@@ -612,16 +703,25 @@ async function init() {
   el.placeChips.addEventListener('click', (e) => {
     const b = e.target.closest('.chip');
     if (!b) return;
+    refitNext = true;          // 위치 기준이 바뀔 때만 지도를 다시 맞춘다
+    if (b.dataset.locate) {
+      buildPlaceChips();
+      locateMe();
+      return;
+    }
     if (b.dataset.mode) {
       filter.place = b.dataset.mode;
       filter.gu = -1;
       filter.station = filter.place === 'station' ? 0 : -1;   // 역 모드는 첫 역부터
+      buildPlaceChips();
+      if (filter.place === 'me') { locateMe(); if (!MY) { search(); return; } }
     } else if (b.dataset.gu !== undefined) {
       filter.gu = Number(b.dataset.gu);
+      buildPlaceChips();
     } else if (b.dataset.st !== undefined) {
       filter.station = Number(b.dataset.st);
+      buildPlaceChips();
     }
-    buildPlaceChips();
     search();
   });
 
@@ -629,6 +729,7 @@ async function init() {
     const b = e.target.closest('.chip');
     if (!b) return;
     filter.radius = Number(b.dataset.r);
+    refitNext = true;
     buildPlaceChips();
     search();
   });
@@ -653,7 +754,7 @@ async function init() {
   el.tabList.addEventListener('click', () => setPane('list'));
   el.tabMap.addEventListener('click', () => setPane('map'));
   el.sheetClose.addEventListener('click', () => { el.sheet.hidden = true; });
-  el.mapreset.addEventListener('click', fitToResults);
+  el.mapreset.addEventListener('click', () => { refitNext = true; syncMarkers(); });
 
   el.list.addEventListener('click', (e) => {
     const row = e.target.closest('.row');
