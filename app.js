@@ -99,10 +99,11 @@ const catOf = (i) => {
 };
 const guOf = (i) => (D.g[i] >= 0 ? D.gu[D.g[i]] : '');
 
-function fullAddr(i) {
-  const gu = guOf(i);
-  const a = D.a[i];
-  return [gu, a].filter(Boolean).join(' ');
+/** 표시용 주소. 층·호 정보가 있으면 뒤에 붙인다. */
+function fullAddr(i, withDetail = true) {
+  const parts = [guOf(i), D.a[i]];
+  if (withDetail && D.d && D.d[i]) parts.push(D.d[i]);
+  return parts.filter(Boolean).join(' ');
 }
 
 function fmtPhone(p) {
@@ -278,14 +279,18 @@ function renderMore() {
 
 const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-/** 카카오맵에서 이 가게를 여는 주소.
+/** 카카오맵에서 이 가게 위치를 여는 주소.
  *
- * 좌표를 넘기는 link/map 은 쓰지 않는다. 휴대폰에서는 applink.map.kakao.com 의
+ * 검색어는 '도로명 주소만' 넣는다. 카카오 검색은 장소명과 주소를 섞으면
+ * 파싱을 못 해 0건이 된다 ('왓더버거 미금역점 분당구 성남대로 151' -> 없음).
+ * 층·호까지 넣어도 "찾으시는 주소가 없습니다"가 되므로 건물번호까지만 보낸다.
+ *
+ * 좌표를 넘기는 link/map 도 쓰지 않는다. 휴대폰에서 applink.map.kakao.com 의
  * 앱 설치 안내 페이지로 빠져 '지도만 열리고 아무것도 안 나오는' 상태가 된다.
- * 상호+주소로 검색하면 가게 정보(영업시간·전화·사진)가 붙은 실제 장소가 열린다.
  */
 function kakaoPlaceUrl(i) {
-  const q = encodeURIComponent(`${D.n[i]} ${fullAddr(i)}`.trim());
+  const addr = fullAddr(i, false);            // 층·호 제외
+  const q = encodeURIComponent(addr ? `성남시 ${addr}` : D.n[i]);
   return IS_MOBILE
     ? `https://m.map.kakao.com/actions/searchView?q=${q}`
     : `https://map.kakao.com/?q=${q}`;

@@ -268,6 +268,38 @@ def addr_rank(a, b):
     return 2
 
 
+def floor_detail(s, shop_name=""):
+    """상품권 자료의 '상세주소' 칸에서 층·호 정보만 건진다.
+
+    23,417건에 값이 있는데 63%만 '1층 121-1호' 같은 위치 정보이고,
+    나머지는 상호를 한 번 더 적어 둔 것이라('에이탑짐 신구대점') 주소로 쓸 수 없다.
+    """
+    s = clean(s)
+    if not s:
+        return ""
+    # 상호가 섞여 있으면 걷어낸다 ('가나프라자 106호 왓더버거' -> '가나프라자 106호')
+    if shop_name:
+        s = re.sub(re.escape(shop_name), "", s).strip()
+        core = re.sub(r"\s*\(.*?\)\s*", "", shop_name).strip()
+        if core and core != shop_name:
+            s = re.sub(re.escape(core), "", s).strip()
+    # 어절 단위로 상호와 겹치는 조각을 털어낸다 ('가나프라자 106호 왓더버거' -> '가나프라자 106호')
+    nm = norm_name(shop_name)
+    keep = []
+    for tok in s.split():
+        t = norm_name(tok)
+        if t and nm and (t in nm or nm in t):
+            continue
+        keep.append(tok)
+    s = " ".join(keep).strip(" ,·-")
+    if not s:
+        return ""
+    # 층/호/동 표기가 하나라도 있어야 주소로 인정한다
+    if not re.search(r"(지하\s*\d*|지상\s*\d*|B\d|\d+\s*층|\d+(-\d+)?\s*호|\d+\s*동)", s):
+        return ""
+    return s[:40]
+
+
 def load_gift():
     """성남사랑상품권 엑셀 -> 레코드 목록. 파일이 없으면 빈 목록."""
     if not os.path.exists(GIFT):
@@ -290,6 +322,7 @@ def load_gift():
         pay = clean(r[7])
         out.append({
             "n": name, "gu": gu, "a": addr, "p": phone_digits(r[6]),
+            "d": floor_detail(r[5], name),
             "sector": clean(r[1]),
             "gt": 3 if "지류" in pay and "모바일" in pay else (1 if "지류" in pay else (2 if "모바일" in pay else 0)),
         })
@@ -333,7 +366,7 @@ def main():
 
         m = re.search(r"(수정구|중원구|분당구)", addr)
         recs.append({
-            "n": name, "a": short_addr(addr),
+            "n": name, "a": short_addr(addr), "d": "",
             "g": GU.index(m.group(1)) if m else -1,
             "c": cat, "p": phone_digits(r.get("MCT_PON")),
             "y": lat, "x": lon,
@@ -410,6 +443,8 @@ def main():
             if hit:
                 hit["pay"] |= PAY_GIFT
                 hit["gt"] = max(hit["gt"], g["gt"])
+                if not hit["d"] and g["d"]:
+                    hit["d"] = g["d"]      # 신한 자료에는 층·호가 없다
                 continue
 
             # 아동수당 목록에 없는 상품권 전용 가맹점 -> 새 항목으로 추가.
@@ -421,6 +456,7 @@ def main():
             recs.append({
                 "n": g["n"],
                 "a": short_addr(g["a"]),
+                "d": g["d"],
                 "g": GU.index(g["gu"]) if g["gu"] in GU else -1,
                 "c": g["sector"] or "기타",
                 "p": g["p"],
@@ -554,6 +590,7 @@ def main():
         "gp": rec_grp,
         "n": [v["n"] for v in recs],
         "a": [v["a"] for v in recs],
+        "d": [v["d"] for v in recs],
         "g": [v["g"] for v in recs],
         "c": [cat_idx[v["c"]] for v in recs],
         "p": [v["p"] for v in recs],
@@ -577,6 +614,8 @@ def main():
         print(f"같은 가게로 보고 결제수단 맞춘 항목: {merged_flags:,}건")
     if plate_n:
         print(f"상호가 차량번호라 지도에서 뺀 항목: {plate_n:,}건")
+    dn = sum(1 for v in recs if v["d"])
+    print(f"층·호 정보가 있는 항목: {dn:,}건")
     if filled:
         print(f"상호를 보고 세부 업종을 채운 항목: {filled:,}건")
     if moved:
