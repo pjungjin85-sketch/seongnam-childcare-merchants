@@ -7,6 +7,7 @@
 """
 import json
 import os
+import random
 import threading
 import time
 import urllib.error
@@ -33,10 +34,11 @@ DELAY = 0.12
 
 lock = threading.Lock()
 store = {}               # MCT_N -> row
+failed = []              # 끝내 못 훑은 구간 [(range, 사유)]
 pages_done = 0
 
 
-def fetch(cursor, retries=4):
+def fetch(cursor, retries=6):
     body = urllib.parse.urlencode({
         "mchtNm": "", "siDo": "경기", "siGunGu": "성남시",
         "category": "", "NXT_QY_KEY": str(cursor).zfill(10),
@@ -55,10 +57,21 @@ def fetch(cursor, retries=4):
         except Exception:
             if attempt == retries - 1:
                 raise
-            time.sleep(1.5 * (attempt + 1))
+            # 서버가 연결을 그냥 끊는 일이 잦다(RemoteDisconnected). 점점 길게 쉬되,
+            # 여러 워커가 같은 순간에 다시 몰리지 않도록 대기 시간을 흩는다.
+            time.sleep(1.5 * (2 ** attempt) + random.random())
 
 
 def work(rng):
+    """구간 하나를 훑는다. 실패하면 전체를 죽이지 않고 실패 목록에 넣는다."""
+    try:
+        crawl_range(rng)
+    except Exception as e:
+        with lock:
+            failed.append((rng, repr(e)[:120]))
+
+
+def crawl_range(rng):
     """[start, end) 구간을 커서로 훑는다."""
     global pages_done
     start, end = rng
@@ -108,7 +121,25 @@ def main():
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
         list(ex.map(work, ranges))
 
+    # 실패한 구간만 워커를 줄여 다시 훑는다. 동시 요청이 적으면 대개 통과한다.
+    for attempt in range(2):
+        if not failed:
+            break
+        retry, failed[:] = list(failed), []
+        print(f"  구간 {len(retry)}개 재시도 ({attempt + 1}/2) — {retry[0][1]}", flush=True)
+        time.sleep(5)
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            list(ex.map(work, [r for r, _ in retry]))
+
     stop.set()
+
+    if failed:
+        save()   # 받은 만큼은 남겨 두되, 이 자료로 배포하지는 않는다
+        raise SystemExit(
+            f"[중단] {len(failed)}개 구간을 끝내 못 훑었습니다. 빠진 채로 배포하면\n"
+            f"        가맹점이 조용히 사라지므로 여기서 멈춥니다.\n"
+            f"        사유: {failed[0][1]}")
+
     n = save()
     print(f"완료: {n:,}건 · {time.time()-t0:.0f}초 · {OUT}", flush=True)
 
