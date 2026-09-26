@@ -1,6 +1,6 @@
 # 성남 아동수당·상품권 가맹점 찾기 — 작업 기록
 
-**기간** 2026-09-15 ~ 2026-09-16
+**기간** 2026-09-15 ~ 09-16 (개발) · 09-26 (자동 갱신 보강)
 **배포** https://pjungjin85-sketch.github.io/seongnam-childcare-merchants/
 **저장소** `pjungjin85-sketch/seongnam-childcare-merchants`
 **정리 문서** https://claude.ai/code/artifact/4790fedf-039f-4eea-b42a-79d2ddac0b97
